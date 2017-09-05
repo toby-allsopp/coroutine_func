@@ -1,21 +1,28 @@
 #pragma once
 
 #include <experimental/coroutine>
+#include <functional>
 #include <tuple>
 
 template <typename Ret, typename... Args>
 class func {
  public:
+  func() noexcept : h(nullptr) {}
+
   template <typename F>
   func(F&& f) : func(create(std::forward<F>(f))) {}
 
   func(func const&) = delete;
-  func(func&& other) noexcept : h(other.h) { other.h = nullptr; }
+  func(func&& other) noexcept : func() {
+    using std::swap;
+    swap(h, other.h);
+  }
 
   func& operator=(func const&) = delete;
   func& operator=(func&& other) noexcept {
-    h = other.h;
-    other.h = nullptr;
+    h = nullptr;
+    using std::swap;
+    swap(h, other.h);
     return *this;
   }
 
@@ -23,30 +30,23 @@ class func {
     if (h) h.destroy();
   }
 
-  // template <typename... ActualArgs>
   Ret operator()(Args... args) {
+    if (!h) throw std::bad_function_call();
     auto args_tuple = std::tuple<Args...>{args...};
     h.promise().arguments = &args_tuple;
     h.resume();
-    return h.promise().ret_value;
+    return std::move(h.promise().ret_value);
   }
 
   struct promise_type;
 
  private:
-  struct get_args {
-    promise_type* p;
-    bool await_ready() { return true; }
-    void await_suspend(std::experimental::coroutine_handle<>) {}
-    decltype(auto) await_resume() { return std::move(*p->arguments); }
-  };
-
   struct promise_type {
     auto get_return_object() { return func(*this); }
     auto initial_suspend() { return std::experimental::suspend_always{}; }
-    auto await_transform(get_args) { return get_args{this}; }
-    auto yield_value(Ret ret) {
-      ret_value = std::move(ret);
+    template <typename F>
+    auto yield_value(F&& f) {
+      ret_value = std::apply(f, std::move(*arguments));
       return std::experimental::suspend_always{};
     }
     void return_void() {}
@@ -65,7 +65,7 @@ class func {
   template <typename F>
   static func create(F f) {
     for (;;) {
-      co_yield std::apply(f, co_await get_args{});
+      co_yield f;
     }
   }
 };

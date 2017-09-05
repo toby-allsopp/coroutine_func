@@ -17,6 +17,11 @@ int main() {
     std::cout << f(std::make_unique<int>(-1)) << std::endl;
   }
   {
+      func<std::unique_ptr<int>, std::unique_ptr<int> const&> f = [](auto const& p) { return std::make_unique<int>(*p); };
+      std::cout << *f(std::make_unique<int>(7)) << std::endl;
+      std::cout << *f(std::make_unique<int>(-1)) << std::endl;
+  }
+  {
     func<int, int> f = [](int i) -> int { throw i; };
     try {
       std::cout << f(7) << std::endl;
